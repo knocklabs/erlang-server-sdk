@@ -71,7 +71,7 @@
     ok.
 add_event(Tag, Event, Options) when is_atom(Tag) ->
     ServerName = get_local_reg_name(Tag),
-    gen_server:call(ServerName, {add_event, Event, Tag, Options}).
+    gen_server:cast(ServerName, {add_event, Event, Tag, Options}).
 
 %% @doc Flush buffered events
 %%
@@ -140,6 +140,9 @@ handle_call({flush, Tag}, _From, #{events := Events, summary_event := SummaryEve
     NewTimerRef = erlang:send_after(FlushInterval, self(), {flush, Tag}),
     {reply, ok, State#{events := [], summary_event := #{}, timer_ref := NewTimerRef}}.
 
+handle_cast({add_event, Event, Tag, Options}, #{events := Events, summary_event := SummaryEvent, capacity := Capacity, inline_users := InlineUsers} = State) ->
+    {NewEvents, NewSummaryEvent} = add_event(Tag, Event, Options, Events, SummaryEvent, Capacity, InlineUsers),
+    {noreply, State#{events := NewEvents, summary_event := NewSummaryEvent}};
 handle_cast(_Request, State) ->
     {noreply, State}.
 
