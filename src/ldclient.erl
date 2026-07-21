@@ -24,6 +24,7 @@
 -export([initialized/1]).
 -export([variation/3]).
 -export([variation/4]).
+-export([variation/5]).
 -export([variation_detail/3]).
 -export([variation_detail/4]).
 -export([all_flags_state/1]).
@@ -38,6 +39,13 @@
 
 %% Constants
 -define(DEFAULT_INSTANCE_NAME, default).
+
+%% Types
+-type variation_options() :: #{
+    event_sampling => number()
+}.
+
+-export_type([variation_options/0]).
 
 %%===================================================================
 %% API
@@ -130,21 +138,40 @@ initialized(Tag) ->
 -spec variation(FlagKey :: binary(), Context :: ldclient_user:user() | ldclient_context:context(), DefaultValue :: ldclient_eval:result_value()) ->
     ldclient_eval:result_value().
 variation(FlagKey, Context, DefaultValue) when is_binary(FlagKey), is_map(Context) ->
-     variation(FlagKey, ensure_context(Context), DefaultValue, ?DEFAULT_INSTANCE_NAME).
+    variation(FlagKey, ensure_context(Context), DefaultValue, ?DEFAULT_INSTANCE_NAME, #{}).
 
-%% @doc Evaluate given flag key for given context and given client instance
+%% @doc Evaluate given flag key for given context with options or a given client instance
 %%
 %% Evaluates the flag and returns the resulting variation value. The default
-%% value will be returned in case of any errors.
+%% value will be returned in case of any errors. When `TagOrOptions' is an
+%% atom, the evaluation uses that client instance. When it is a map, the
+%% evaluation uses the default client instance and accepts an `event_sampling' number
+%% between `0.0' and `1.0' controlling the probability of recording the events
+%% produced by an evaluation.
 %% @end
--spec variation(FlagKey :: binary(), Context :: ldclient_user:user() | ldclient_context:context(), DefaultValue :: ldclient_eval:result_value(), Tag :: atom()) ->
+-spec variation(FlagKey :: binary(), Context :: ldclient_user:user() | ldclient_context:context(), DefaultValue :: ldclient_eval:result_value(),
+    TagOrOptions :: atom() | variation_options()) ->
     ldclient_eval:result_value().
-variation(FlagKey, Context, DefaultValue, Tag) when is_binary(FlagKey), is_map(Context) ->
+variation(FlagKey, Context, DefaultValue, Tag) when is_binary(FlagKey), is_map(Context), is_atom(Tag) ->
+    variation(FlagKey, Context, DefaultValue, Tag, #{});
+variation(FlagKey, Context, DefaultValue, Options) when is_binary(FlagKey), is_map(Context), is_map(Options) ->
+    variation(FlagKey, Context, DefaultValue, ?DEFAULT_INSTANCE_NAME, Options).
+
+%% @doc Evaluate given flag key for given context, client instance, and options
+%%
+%% The `event_sampling' option is a number between `0.0' and `1.0' controlling
+%% the probability of recording the events produced by an evaluation. It
+%% defaults to `1.0'.
+%% @end
+-spec variation(FlagKey :: binary(), Context :: ldclient_user:user() | ldclient_context:context(), DefaultValue :: ldclient_eval:result_value(),
+    Tag :: atom(), Options :: variation_options()) ->
+    ldclient_eval:result_value().
+variation(FlagKey, Context, DefaultValue, Tag, Options)
+        when is_binary(FlagKey), is_map(Context), is_atom(Tag), is_map(Options) ->
     % Get evaluation result detail
     {{_Index, Value, _Reason}, Events} = ldclient_eval:flag_key_for_context(Tag, FlagKey, ensure_context(Context), DefaultValue),
     % Send events
-    SendEventsFun = fun(Event) -> ldclient_event_server:add_event(Tag, Event, #{}) end,
-    lists:foreach(SendEventsFun, Events),
+    send_events(Tag, Events, #{}, Options),
     % Return evaluation result
     Value.
 
@@ -297,3 +324,25 @@ when_is_valid_context(Context, AllowEmptyKey, Fun) ->
         true -> Fun();
         false -> ok
     end.
+
+-spec send_events(Tag :: atom(), Events :: [ldclient_event:event()], EventOptions :: map(),
+    VariationOptions :: variation_options()) -> ok.
+send_events(Tag, Events, EventOptions, VariationOptions) ->
+    Sampling = maps:get(event_sampling, VariationOptions, 1.0),
+    case should_sample_event(Sampling) of
+        true ->
+            SendEventFun = fun(Event) ->
+                ldclient_event_server:add_event(Tag, Event, EventOptions)
+            end,
+            lists:foreach(SendEventFun, Events);
+        false ->
+            ok
+    end.
+
+-spec should_sample_event(Sampling :: number()) -> boolean().
+should_sample_event(Sampling) when is_number(Sampling), Sampling == 0 ->
+    false;
+should_sample_event(Sampling) when is_number(Sampling), Sampling == 1 ->
+    true;
+should_sample_event(Sampling) when is_number(Sampling), Sampling > 0, Sampling < 1 ->
+    rand:uniform() =< Sampling.
