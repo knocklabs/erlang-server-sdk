@@ -39,11 +39,13 @@ end_per_testcase(_, _Config) ->
 
 sampling_zero_drops_events(_) ->
     true = ldclient:variation(<<"flag">>, context(), false, #{event_sampling => 0.0}),
+    true = ldclient:variation(<<"flag">>, context(), false, #{event_sampling => 0}),
     0 = meck:num_calls(ldclient_event_server, add_event, '_').
 
 sampling_one_sends_events(_) ->
     true = ldclient:variation(<<"flag">>, context(), false, custom, #{event_sampling => 1.0}),
-    1 = meck:num_calls(ldclient_event_server, add_event, [custom, event, #{}]).
+    true = ldclient:variation(<<"flag">>, context(), false, custom, #{event_sampling => 1}),
+    2 = meck:num_calls(ldclient_event_server, add_event, [custom, event, #{}]).
 
 sampling_uses_probability(_) ->
     meck:expect(ldclient_eval, flag_key_for_context,

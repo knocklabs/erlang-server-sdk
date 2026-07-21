@@ -42,7 +42,7 @@
 
 %% Types
 -type variation_options() :: #{
-    event_sampling => float()
+    event_sampling => number()
 }.
 
 -export_type([variation_options/0]).
@@ -145,7 +145,7 @@ variation(FlagKey, Context, DefaultValue) when is_binary(FlagKey), is_map(Contex
 %% Evaluates the flag and returns the resulting variation value. The default
 %% value will be returned in case of any errors. When `TagOrOptions' is an
 %% atom, the evaluation uses that client instance. When it is a map, the
-%% evaluation uses the default client instance and accepts an `event_sampling' float
+%% evaluation uses the default client instance and accepts an `event_sampling' number
 %% between `0.0' and `1.0' controlling the probability of recording the events
 %% produced by an evaluation.
 %% @end
@@ -159,7 +159,7 @@ variation(FlagKey, Context, DefaultValue, Options) when is_binary(FlagKey), is_m
 
 %% @doc Evaluate given flag key for given context, client instance, and options
 %%
-%% The `event_sampling' option is a float between `0.0' and `1.0' controlling
+%% The `event_sampling' option is a number between `0.0' and `1.0' controlling
 %% the probability of recording the events produced by an evaluation. It
 %% defaults to `1.0'.
 %% @end
@@ -339,10 +339,10 @@ send_events(Tag, Events, EventOptions, VariationOptions) ->
             ok
     end.
 
--spec should_sample_event(Sampling :: float()) -> boolean().
-should_sample_event(+0.0) ->
+-spec should_sample_event(Sampling :: number()) -> boolean().
+should_sample_event(Sampling) when is_number(Sampling), Sampling == 0 ->
     false;
-should_sample_event(1.0) ->
+should_sample_event(Sampling) when is_number(Sampling), Sampling == 1 ->
     true;
-should_sample_event(Sampling) when is_float(Sampling), Sampling > 0.0, Sampling < 1.0 ->
+should_sample_event(Sampling) when is_number(Sampling), Sampling > 0, Sampling < 1 ->
     rand:uniform() =< Sampling.
