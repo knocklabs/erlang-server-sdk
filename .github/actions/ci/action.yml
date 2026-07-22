@@ -8,13 +8,16 @@ inputs:
     description: "If true, run unit tests, otherwise skip them."
     required: false
     default: "true"
+  github_token:
+    description: "Github token used to access contract test harness."
+    required: true
 
 runs:
   using: composite
   steps:
     - run: make compile
       shell: bash
-    - uses: supercharge/redis-github-action@1.6.0
+    - uses: supercharge/redis-github-action@bc274cb7238cd63a45029db04ee48c07a72609fd
     - run: make ci-tests
       shell: bash
     - uses: ./.github/actions/build-docs
@@ -22,7 +25,11 @@ runs:
       shell: bash
     - run: make build-contract-tests
       shell: bash
-    - run: make start-contract-test-service-bg
+    - name: Start contract test service
       shell: bash
-    - run: make run-contract-tests
-      shell: bash
+      run: make start-contract-test-service-bg
+    - uses: launchdarkly/gh-actions/actions/contract-tests@contract-tests-v1.1.0
+      with:
+        test_service_port: 8000
+        token: ${{ inputs.github_token }}
+        extra_params: '--skip-from=./test-service/testharness-suppressions.txt'

@@ -1,7 +1,7 @@
 {application, ldclient,
  [{description, "LaunchDarkly SDK for Erlang"},
   {pkg_name, "launchdarkly_server_sdk"},
-  {vsn, "3.0.4"}, %% x-release-please-version
+  {vsn, "3.11.0"}, %% x-release-please-version
   {registered, []},
   {mod, {ldclient_app, []}},
   {applications,
@@ -23,6 +23,6 @@
   {env,[]},
   {modules, []},
 
-  {licenses, ["Apache 2.0"]},
+  {licenses, ["Apache-2.0"]},
   {links, [{"GitHub", "https://github.com/launchdarkly/erlang-server-sdk"}]}
  ]}.

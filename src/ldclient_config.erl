@@ -68,6 +68,7 @@
     redis_host => string(),
     redis_port => pos_integer(),
     redis_database => integer(),
+    redis_username => string() | undefined,
     redis_password => string(),
     redis_prefix => string(),
     redis_tls => [ssl:tls_option()] | undefined,
@@ -83,7 +84,8 @@
     datasource => poll | stream | file | testdata | undefined,
     http_options => http_options(),
     stream_initial_retry_delay_ms => non_neg_integer(),
-    application => app_info()
+    application => app_info(),
+    instance_id => binary()
 }.
 % Settings stored for each running SDK instance
 
@@ -106,12 +108,13 @@
 -define(DEFAULT_POLLING_UPDATE_REQUESTOR, ldclient_update_requestor_httpc).
 -define(MINIMUM_POLLING_INTERVAL, 30).
 -define(USER_AGENT, "ErlangClient").
--define(VERSION, "3.0.4"). %% x-release-please-version
+-define(VERSION, "3.11.0"). %% x-release-please-version
 -define(EVENT_SCHEMA, "4").
 -define(DEFAULT_OFFLINE, false).
 -define(DEFAULT_REDIS_HOST, "127.0.0.1").
 -define(DEFAULT_REDIS_PORT, 6379).
 -define(DEFAULT_REDIS_DATABASE, 0).
+-define(DEFAULT_REDIS_USERNAME, undefined).
 -define(DEFAULT_REDIS_PASSWORD, "").
 -define(DEFAULT_REDIS_PREFIX, "launchdarkly").
 -define(DEFAULT_REDIS_TLS, undefined).
@@ -134,6 +137,17 @@
 
 
 -define(APPLICATION_DEFAULT_OPTIONS, undefined).
+
+%% Enable TLS 1.3 support for erlang 23 and higher.
+%% TLS 1.3 support stabilized during 22, but this implementation does not work in 22.0.
+%% To use TLS 1.3 with OTP 22, custom TLS options can be used.
+-if(?OTP_RELEASE >= 23).
+-define(MAX_SUPPORTED_TLS_VERSION, 'tlsv1.3').
+-define(SUPPORTED_TLS_VERSIONS, ['tlsv1.2', 'tlsv1.3']).
+-else.
+-define(MAX_SUPPORTED_TLS_VERSION, 'tlsv1.2').
+-define(SUPPORTED_TLS_VERSIONS, ['tlsv1.2']).
+-endif.
 
 %%===================================================================
 %% API
@@ -174,6 +188,7 @@ parse_options(SdkKey, Options) when is_list(SdkKey), is_map(Options) ->
     RedisHost = maps:get(redis_host, Options, ?DEFAULT_REDIS_HOST),
     RedisPort = maps:get(redis_port, Options, ?DEFAULT_REDIS_PORT),
     RedisDatabase = maps:get(redis_database, Options, ?DEFAULT_REDIS_DATABASE),
+    RedisUsername = maps:get(redis_username, Options, ?DEFAULT_REDIS_USERNAME),
     RedisPassword = maps:get(redis_password, Options, ?DEFAULT_REDIS_PASSWORD),
     RedisPrefix = maps:get(redis_prefix, Options, ?DEFAULT_REDIS_PREFIX),
     CacheTtl = maps:get(cache_ttl, Options, ?DEFAULT_CACHE_TTL),
@@ -189,6 +204,14 @@ parse_options(SdkKey, Options) when is_list(SdkKey), is_map(Options) ->
     HttpOptions = parse_http_options(maps:get(http_options, Options, undefined)),
     AppInfo = parse_application_info(maps:get(application, Options, ?APPLICATION_DEFAULT_OPTIONS)),
     RedisTls = maps:get(redis_tls, Options, ?DEFAULT_REDIS_TLS),
+    %% Per SCMP-server-connection-minutes-polling, each SDK instance gets a
+    %% stable v4 UUID that is sent as the X-LaunchDarkly-Instance-Id header on
+    %% every outbound request (polling, streaming, and events). It is
+    %% generated once here in parse_options/2, which is called exactly once
+    %% per ldclient_instance:start/3, and then stored in the per-instance
+    %% settings so ldclient_headers can pick it up alongside the other
+    %% default headers.
+    InstanceId = uuid:uuid_to_string(uuid:get_v4(), binary_standard),
     #{
         sdk_key => SdkKey,
         base_uri => BaseUri,
@@ -207,6 +230,7 @@ parse_options(SdkKey, Options) when is_list(SdkKey), is_map(Options) ->
         redis_host => RedisHost,
         redis_port => RedisPort,
         redis_database => RedisDatabase,
+        redis_username => RedisUsername,
         redis_password => RedisPassword,
         redis_prefix => RedisPrefix,
         redis_tls => RedisTls,
@@ -222,7 +246,8 @@ parse_options(SdkKey, Options) when is_list(SdkKey), is_map(Options) ->
         testdata_tag => TestDataTag,
         datasource => DataSource,
         stream_initial_retry_delay_ms => StreamInitialRetryDelayMs,
-        application => AppInfo
+        application => AppInfo,
+        instance_id => InstanceId
     }.
 
 %% @doc Get all registered tags
@@ -281,7 +306,27 @@ get_event_schema() ->
 %% @end
 -spec tls_basic_options() -> [ssl:tls_client_option()].
 tls_basic_options() ->
-    tls_basic_options(filelib:is_regular(?HTTP_DEFAULT_LINUX_CASTORE)).
+    case erlang:list_to_integer(erlang:system_info(otp_release)) >= 25 of
+        true -> tls_basic_erlef_options();
+        false -> tls_basic_options(filelib:is_regular(?HTTP_DEFAULT_LINUX_CASTORE))
+    end.
+
+%% The public_key:cacerts_get function does not exist prior to OTP 25, so we
+%% need to ignore the warning when building code that will not be using it.
+-dialyzer({no_missing_calls, tls_basic_erlef_options/0}).
+
+%% @doc Provide basic options for using TLS with the default OTP 25+.
+%% Follows the recommendations from the Erlang Security Working Group.
+%% https://erlef.github.io/security-wg/secure_coding_and_deployment_hardening/ssl
+%%
+%% @end
+-spec tls_basic_erlef_options() -> [ssl:tls_client_option()].
+tls_basic_erlef_options() ->
+    CaCerts = public_key:cacerts_get(),
+    [
+        {cacerts, CaCerts}
+        | tls_base_options()
+    ].
 
 %% @doc Provide basic options for using TLS with the default linux store.
 %% This will try to use the a certificate store located at
@@ -375,13 +420,15 @@ get_all() ->
     {ok, Instances} = application:get_env(ldclient, instances),
     Instances.
 
--spec tls_base_options() -> [ssl:tls_client_option()].
-tls_base_options() ->
-    DefaultCipherSuites = ssl:cipher_suites(default, 'tlsv1.2'),
-    CipherSuites = ssl:filter_cipher_suites(DefaultCipherSuites, [
+-spec get_suites(TlsVersion :: ssl:protocol_version()) -> ssl:ciphers().
+get_suites(TlsVersion) ->
+    DefaultCipherSuites = ssl:cipher_suites(default, TlsVersion),
+    ssl:filter_cipher_suites(DefaultCipherSuites, [
         {key_exchange, fun
                            (ecdhe_ecdsa) -> true;
                            (ecdhe_rsa) -> true;
+                           %% TLS 1.3 ciphers will have 'any' as the key_exchange.
+                           (any) -> true;
                            (_) -> false
                        end
         },
@@ -390,11 +437,16 @@ tls_base_options() ->
                   (_) -> true
               end
         }
-    ]),
+    ]).
 
+-spec tls_base_options() -> [ssl:tls_client_option()].
+tls_base_options() ->
+    CipherSuites = get_suites(?MAX_SUPPORTED_TLS_VERSION),
     [{verify, verify_peer},
         {ciphers, CipherSuites},
         {depth, 3},
+        %% Only include TLS versions we know we support.
+        {versions, ?SUPPORTED_TLS_VERSIONS},
         {customize_hostname_check, [
             {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
         ]}].

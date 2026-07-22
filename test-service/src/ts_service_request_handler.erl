@@ -73,7 +73,15 @@ get_service_detail(Req, State) ->
       <<"all-flags-with-reasons">>,
       <<"tags">>,
       <<"server-side-polling">>,
-      <<"user-type">>
+      <<"user-type">>,
+      <<"inline-context-all">>,
+      <<"anonymous-redaction">>,
+      <<"tls:custom-ca">>,
+      <<"tls:skip-verify-peer">>,
+      <<"tls:verify-peer">>,
+      <<"client-prereq-events">>,
+      <<"all-flags-client-side-only">>,
+      <<"instance-id">>
     ],
     <<"clientVersion">> => ldclient_config:get_version()
   }),

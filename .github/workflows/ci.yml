@@ -9,28 +9,35 @@ on:
     branches: [main]
     paths-ignore:
       - '**.md'
+  workflow_dispatch:
 
 jobs:
   build-test:
     strategy:
+      # We want to know the status of all OTP versions, not just if one of them fails.
+      fail-fast: false
       matrix:
-        versions: 
-        - {os: 'ubuntu-22.04', otp: '25.x', rebar: '3.18.0'}
-        - {os: 'ubuntu-22.04', otp: '26.x', rebar: '3.22.0'}
-            
-    runs-on: ${{ matrix.versions.os }}
+        versions:
+          - { otp: "24.3.4.17", rebar: "e008a2ff40f708494a7c259a1fd8c2e77f7cd6a0" } # rebar 3.17.0
+          - { otp: "25.3.2.19", rebar: "174fd9070195443d693d444ecd1f2b7aa91661fe" } # rebar 3.18.0
+          - { otp: "27.3.2", rebar: "bde4b54248d16280b2c70a244aca3bb7566e2033" } # rebar 3.23.0
+
+    runs-on: ubuntu-24.04
     name: Build and Test - ${{ matrix.versions.otp }}
 
     steps:
-      - uses: erlef/setup-beam@v1
-        with:
-          version-type: loose
-          otp-version: ${{ matrix.versions.otp }}
-          rebar3-version: ${{ matrix.versions.rebar }}
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      - name: Install Erlang and rebar3
+        uses: ./.github/actions/install-erlang
+        with:
+          otp_version: ${{ matrix.versions.otp }}
+          rebar_version: ${{ matrix.versions.rebar }}
+
       - uses: ./.github/actions/ci
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
         env:
           OTP_VER: ${{ matrix.versions.otp }}

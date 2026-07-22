@@ -92,7 +92,9 @@ handle_info({listen}, #{stream_uri := Uri} = State) ->
 handle_info({'DOWN', _Mref, process, ShotgunPid, Reason}, #{conn := ShotgunPid, backoff := Backoff} = State) ->
     NewBackoff = ldclient_backoff:fail(Backoff),
     _ = ldclient_backoff:fire(NewBackoff),
-    error_logger:warning_msg("Got DOWN message from shotgun pid with reason: ~p, will retry in ~p ms~n", [Reason, maps:get(current, NewBackoff)]),
+    % Reason from DOWN message could contain connection details with headers/SDK keys
+    SafeReason = ldclient_key_redaction:format_shotgun_error(Reason),
+    error_logger:warning_msg("Got DOWN message from shotgun pid with reason: ~s, will retry in ~p ms~n", [SafeReason, maps:get(current, NewBackoff)]),
     {noreply, State#{conn := undefined, backoff := NewBackoff}};
 handle_info({timeout, _TimerRef, listen}, State) ->
     error_logger:info_msg("Reconnecting streaming connection...~n"),
@@ -132,13 +134,16 @@ do_listen(#{
             NewBackoff = do_listen_fail_backoff(Backoff, temporary, Reason),
             State#{backoff := NewBackoff};
         {error, permanent, Reason} ->
+            % Reason here is already safe: either a sanitized string from format_shotgun_error
+            % or an integer status code from the do_listen/5 method.
             error_logger:error_msg("Stream encountered permanent error ~p, giving up~n", [Reason]),
             State;
         {ok, Pid} ->
             NewBackoff = ldclient_backoff:succeed(Backoff),
             State#{conn := Pid, backoff := NewBackoff}
-        catch Code:Reason ->
-            NewBackoff = do_listen_fail_backoff(Backoff, Code, Reason),
+        catch Code:_Reason ->
+            % Don't pass raw exception reason as it could contain unsafe data
+            NewBackoff = do_listen_fail_backoff(Backoff, Code, "unexpected exception"),
             State#{backoff := NewBackoff}
     end.
 
@@ -163,17 +168,18 @@ do_listen(Uri, FeatureStore, Tag, GunOpts, Headers) ->
     Opts = #{gun_opts => GunOpts},
     case shotgun:open(Host, Port, Scheme, Opts) of
         {error, gun_open_failed} ->
-            {error, gun_open_failed, "Could not open connection to host"};
+            {error, temporary, "Could not open connection to host"};
         {error, gun_open_timeout} ->
-            {error, gun_open_timeout, "Connection timeout"};
+            {error, temporary, "Connection timeout"};
         {ok, Pid} ->
             _ = monitor(process, Pid),
             F = fun(nofin, _Ref, Bin) ->
                     try
                         process_event(parse_shotgun_event(Bin), FeatureStore, Tag)
-                    catch Code:Reason ->
-                        % Exception when processing event, log error, close connection
-                        error_logger:warning_msg("Invalid SSE event error (~p): ~p", [Code, Reason]),
+                    catch Code:_Reason ->
+                        % Exception when processing event - don't log exception details
+                        % as they could theoretically contain sensitive data
+                        error_logger:warning_msg("Invalid SSE event error (~p)", [Code]),
                         shotgun:close(Pid)
                     end;
                 (fin, _Ref, _Bin) ->
@@ -181,11 +187,12 @@ do_listen(Uri, FeatureStore, Tag, GunOpts, Headers) ->
                     error_logger:warning_msg("Streaming connection ended"),
                     shotgun:close(Pid)
                 end,
-            Options = #{async => true, async_mode => sse, handle_event => F},
+            Options = #{async => true, async_mode => sse, handle_event => F, allow_reconnect => false},
             case shotgun:get(Pid, Path ++ Query, Headers, Options) of
                 {error, Reason} ->
                     shotgun:close(Pid),
-                    {error, temporary, Reason};
+                    SafeReason = ldclient_key_redaction:format_shotgun_error(Reason),
+                    {error, temporary, SafeReason};
                 {ok, #{status_code := StatusCode}} when StatusCode >= 400 ->
                     {error, ldclient_http:is_http_error_code_recoverable(StatusCode), StatusCode};
                 {ok, _Ref} ->

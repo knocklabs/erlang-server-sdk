@@ -57,11 +57,12 @@ init([Tag]) ->
     Host = ldclient_config:get_value(Tag, redis_host),
     Port = ldclient_config:get_value(Tag, redis_port),
     Database = ldclient_config:get_value(Tag, redis_database),
+    Username = ldclient_config:get_value(Tag, redis_username),
     Password = ldclient_config:get_value(Tag, redis_password),
     Prefix = ldclient_config:get_value(Tag, redis_prefix),
     TlsOpts = ldclient_config:get_value(Tag, redis_tls),
     BasicOpts = [
-        {host, Host}, {port, Port}, {database, Database}, {password, Password}
+        {host, Host}, {port, Port}, {database, Database}, {username, Username}, {password, Password}
     ],
     EredisOpts = set_tls_options(BasicOpts, TlsOpts),
     {ok, Client} = eredis:start_link(EredisOpts),
@@ -206,8 +207,13 @@ bucket_exists(Bucket, Buckets) when is_atom(Bucket) ->
 create_bucket(true, Bucket, _Client, _Prefix, Buckets) ->
     {{error, already_exists, "Redis hash " ++ atom_to_list(Bucket) ++ " already exists."}, Buckets};
 create_bucket(false, Bucket, Client, Prefix, Buckets) ->
-    {ok, _} = eredis:q(Client, ["HSET", bucket_name(Prefix, Bucket), null, null]),
-    {ok, [Bucket | Buckets]}.
+    case eredis:q(Client, ["HSET", bucket_name(Prefix, Bucket), null, null]) of
+        {ok, _} ->
+            {ok, [Bucket | Buckets]};
+        {error, Reason} ->
+            error_logger:error_msg("Redis connection error during create_bucket for ~p: ~p", [Bucket, Reason]),
+            {ok, [Bucket | Buckets]}
+    end.
 
 %% @doc Empty a bucket
 %% @private
@@ -220,9 +226,14 @@ create_bucket(false, Bucket, Client, Prefix, Buckets) ->
 empty_bucket(false, Bucket, _Client, _Prefix) ->
     {error, bucket_not_found, "Redis hash " ++ atom_to_list(Bucket) ++ " does not exist."};
 empty_bucket(true, Bucket, Client, Prefix) ->
-    {ok, _} = eredis:q(Client, ["DEL", bucket_name(Prefix, Bucket)]),
-    {ok, _} = create_bucket(false, Bucket, Client, Prefix, []),
-    ok.
+    case eredis:q(Client, ["DEL", bucket_name(Prefix, Bucket)]) of
+        {ok, _} ->
+            {ok, _} = create_bucket(false, Bucket, Client, Prefix, []),
+            ok;
+        {error, Reason} ->
+            error_logger:error_msg("Redis connection error during empty_bucket for ~p: ~p", [Bucket, Reason]),
+            ok
+    end.
 
 %% @doc List all items in a bucket
 %% @private
@@ -235,11 +246,16 @@ empty_bucket(true, Bucket, Client, Prefix) ->
 all_items(false, Bucket, _Client, _Prefix) ->
     {error, bucket_not_found, "Redis hash " ++ atom_to_list(Bucket) ++ " does not exist."};
 all_items(true, Bucket, Client, Prefix) ->
-    {ok, Values} = eredis:q(Client, ["HGETALL", bucket_name(Prefix, Bucket)]),
-    NullFilter = [<<"null">>],
-    NewValues = lists:filter(fun(Elem) ->
-        not lists:member(Elem, NullFilter) end, Values), %This removes the initial null key and value
-    pairs(NewValues, Bucket).
+    case eredis:q(Client, ["HGETALL", bucket_name(Prefix, Bucket)]) of
+        {ok, Values} ->
+            NullFilter = [<<"null">>],
+            NewValues = lists:filter(fun(Elem) ->
+                not lists:member(Elem, NullFilter) end, Values), %This removes the initial null key and value
+            pairs(NewValues, Bucket);
+        {error, Reason} ->
+            error_logger:error_msg("Redis error listing all items in bucket ~p: ~s", [Bucket, format_error(Reason)]),
+            []
+    end.
 
 pairs([A, B | L], Bucket) ->
     Decoded = jsx:decode(B, [return_maps]),
@@ -264,19 +280,24 @@ pairs([], _Bucket) -> [].
 lookup_key(false, _Key, Bucket, _Client, _Prefix) ->
     {error, bucket_not_found, "Redis hash " ++ atom_to_list(Bucket) ++ " does not exist."};
 lookup_key(true, Key, Bucket, Client, Prefix) ->
-    {ok, Value} = eredis:q(Client, ["HGET", bucket_name(Prefix, Bucket), Key]),
-    if
-        (Value == undefined) -> [];
-        true ->
-            Decoded = jsx:decode(Value, [return_maps]),
+    case eredis:q(Client, ["HGET", bucket_name(Prefix, Bucket), Key]) of
+        {ok, Value} ->
             if
-                Bucket == features ->
-                    Parsed = ldclient_flag:new(Decoded),
-                    [{Key, Parsed}];
-                Bucket == segments ->
-                    Parsed = ldclient_segment:new(Decoded),
-                    [{Key, Parsed}]
-            end
+                (Value == undefined) -> [];
+                true ->
+                    Decoded = jsx:decode(Value, [return_maps]),
+                    if
+                        Bucket == features ->
+                            Parsed = ldclient_flag:new(Decoded),
+                            [{Key, Parsed}];
+                        Bucket == segments ->
+                            Parsed = ldclient_segment:new(Decoded),
+                            [{Key, Parsed}]
+                    end
+            end;
+        {error, Reason} ->
+            error_logger:error_msg("Redis error looking up key ~p in bucket ~p: ~s", [Key, Bucket, format_error(Reason)]),
+            []
     end.
 
 %% @doc Upsert key value pairs in bucket
@@ -289,14 +310,27 @@ lookup_key(true, Key, Bucket, Client, Prefix) ->
 upsert_items(false, _Items, Bucket, _Client, _Prefix) ->
     {error, bucket_not_found, "Redis hash " ++ atom_to_list(Bucket) ++ " does not exist."};
 upsert_items(true, Items, Bucket, Client, Prefix) ->
-    {ok, <<"OK">>} = eredis:q(Client, ["WATCH", bucket_name(Prefix, Bucket)]),
-    ok = maps:fold(
-        fun(K, V, ok) ->
-            {ok, _} = eredis:q(Client, ["HSET", bucket_name(Prefix, Bucket), K, jsx:encode(V)]),
+    case eredis:q(Client, ["WATCH", bucket_name(Prefix, Bucket)]) of
+        {ok, <<"OK">>} ->
+            Result = maps:fold(
+                fun(K, V, ok) ->
+                    case eredis:q(Client, ["HSET", bucket_name(Prefix, Bucket), K, jsx:encode(V)]) of
+                        {ok, _} -> ok;
+                        {error, Reason} ->
+                            error_logger:error_msg("Redis connection error during HSET for ~p key ~p: ~p", [Bucket, K, Reason]),
+                            ok
+                    end
+                end, ok, Items),
+            case eredis:q(Client, ["UNWATCH"]) of
+                {ok, <<"OK">>} -> Result;
+                {error, Reason} ->
+                    error_logger:error_msg("Redis connection error during UNWATCH for ~p: ~p", [Bucket, Reason]),
+                    ok
+            end;
+        {error, Reason} ->
+            error_logger:error_msg("Redis connection error during WATCH for ~p: ~p", [Bucket, Reason]),
             ok
-        end, ok, Items),
-    {ok, <<"OK">>} = eredis:q(Client, ["UNWATCH"]),
-    ok.
+    end.
 
 %% @doc Empty bucket and upsert key value pairs
 %% @private
@@ -323,22 +357,42 @@ upsert_clean_items(true, Items, Bucket, Client, Prefix) ->
 delete_key(false, _Key, Bucket, _Client, _Prefix) ->
     {error, bucket_not_found, "Redis hash " ++ atom_to_list(Bucket) ++ " does not exist."};
 delete_key(true, Key, Bucket, Client, Prefix) ->
-    {ok, _} = eredis:q(Client, ["HDEL", bucket_name(Prefix, Bucket), Key]),
-    ok.
+    case eredis:q(Client, ["HDEL", bucket_name(Prefix, Bucket), Key]) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            error_logger:error_msg("Redis connection error during delete_key for ~p key ~p: ~p", [Bucket, Key, Reason]),
+            ok
+    end.
 
 bucket_name(Prefix, Bucket) ->
     lists:concat([Prefix, ":", Bucket]).
 
+%% @doc Format Redis error for logging
+%% @private
+%%
+%% @end
+-spec format_error(Reason :: no_connection | binary()) -> string().
+format_error(no_connection) -> "no connection to Redis";
+format_error(Reason) when is_binary(Reason) -> binary_to_list(Reason).
+
 -spec set_init(Client :: client_pid(), Prefix :: string()) -> ok.
 set_init(Client, Prefix) ->
-    {ok, _} = eredis:q(Client, ["SET", lists:concat([Prefix, ":$inited"]), ""]),
-    ok.
+    case eredis:q(Client, ["SET", lists:concat([Prefix, ":$inited"]), ""]) of
+        {ok, _} -> ok;
+        {error, Reason} ->
+            error_logger:error_msg("Redis connection error during set_init: ~p", [Reason]),
+            ok
+    end.
 
 -spec get_init(Client :: client_pid(), Prefix :: string()) -> boolean().
 get_init(Client, Prefix) ->
-    {ok, Value} = eredis:q(Client, ["GET", lists:concat([Prefix, ":$inited"])]),
-    case Value of
-        undefined -> false;
-        _ -> true
+    case eredis:q(Client, ["GET", lists:concat([Prefix, ":$inited"])]) of
+        {ok, Value} ->
+            case Value of
+                undefined -> false;
+                _ -> true
+            end;
+        {error, Reason} ->
+            error_logger:error_msg("Redis error getting init flag: ~s", [format_error(Reason)]),
+            false
     end.
-

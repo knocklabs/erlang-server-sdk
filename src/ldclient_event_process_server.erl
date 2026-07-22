@@ -12,7 +12,7 @@
 -export([start_link/1, init/1]).
 
 %% Behavior callbacks
--export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2]).
+-export([code_change/3, handle_call/3, handle_cast/2, handle_info/2, terminate/2, format_status/1]).
 
 %% API
 -export([
@@ -27,9 +27,10 @@
     global_private_attributes := ldclient_config:private_attributes(),
     events_uri := string(),
     tag := atom(),
-    dispatcher_state := any(),
-    last_server_time := integer()
+    dispatcher_state := any()
 }.
+
+-define(TABLE_PREFIX, "event_process_state").
 
 %%===================================================================
 %% API
@@ -46,8 +47,17 @@ send_events(Tag, Events, SummaryEvent) ->
 
 -spec get_last_server_time(Tag :: atom()) -> integer().
 get_last_server_time(Tag) ->
-    ServerName = get_local_reg_name(Tag),
-    gen_server:call(ServerName, {get_last_server_time}).
+    TableName = ets_table_name(Tag),
+    case ets:info(TableName) of
+        undefined ->
+            0;
+        _ ->
+            case ets:lookup(TableName, last_known_server_time) of
+                [] -> 0;
+                [{last_known_server_time, LastKnownServerTime}] -> LastKnownServerTime
+            end
+    end.
+
 
 %%===================================================================
 %% Supervision
@@ -67,6 +77,7 @@ start_link(Tag) ->
     {ok, State :: state()} | {ok, State :: state(), timeout() | hibernate} |
     {stop, Reason :: term()} | ignore.
 init([Tag]) ->
+    _Tid = ets:new(ets_table_name(Tag), [set, named_table, {read_concurrency, true}]),
     SdkKey = ldclient_config:get_value(Tag, sdk_key),
     Dispatcher = ldclient_config:get_value(Tag, events_dispatcher),
     GlobalPrivateAttributes = ldclient_config:get_value(Tag, private_attributes),
@@ -77,8 +88,7 @@ init([Tag]) ->
         global_private_attributes => GlobalPrivateAttributes,
         events_uri => EventsUri,
         tag => Tag,
-        dispatcher_state =>  Dispatcher:init(Tag, SdkKey),
-        last_server_time => 0
+        dispatcher_state =>  Dispatcher:init(Tag, SdkKey)
     },
     {ok, State}.
 
@@ -90,8 +100,6 @@ init([Tag]) ->
 -spec handle_call(Request :: term(), From :: from(), State :: state()) ->
     {reply, Reply :: term(), NewState :: state()} |
     {stop, normal, {error, atom(), term()}, state()}.
-handle_call({get_last_server_time}, _From, #{last_server_time := LastServerTime} = State) ->
-    {reply, LastServerTime, State};
 handle_call(_Request, _From, State) ->
     {reply, ok, State}.
 
@@ -101,7 +109,8 @@ handle_cast({send_events, Events, SummaryEvent},
         dispatcher := Dispatcher,
         global_private_attributes := GlobalPrivateAttributes,
         events_uri := Uri,
-        dispatcher_state := DispatcherState
+        dispatcher_state := DispatcherState,
+        tag := Tag
     } = State) ->
     FormattedSummaryEvent = format_summary_event(SummaryEvent),
     FormattedEvents = format_events(Events, GlobalPrivateAttributes),
@@ -111,7 +120,8 @@ handle_cast({send_events, Events, SummaryEvent},
        ok ->
            State;
        {ok, Date} ->
-           State#{last_server_time => Date};
+           ets:insert(ets_table_name(Tag), {last_known_server_time, Date}),
+           State;
        {error, temporary, _Reason} ->
            erlang:send_after(1000, self(), {send, OutputEvents, PayloadId}),
            State;
@@ -141,6 +151,15 @@ terminate(_Reason, _State) ->
 
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
+
+%% @doc Redact SDK key from state for logging
+%% @private
+%%
+%% @end
+format_status(#{state := State}) ->
+    #{state => State#{sdk_key => "[REDACTED]"}};
+format_status(Other) ->
+    Other.
 
 %%===================================================================
 %% Internal functions
@@ -228,8 +247,10 @@ maybe_set_reason(_Event, OutputEvent) ->
     OutputEvent.
 
 -spec format_event_set_context(binary(), ldclient_context:context(), map(), ldclient_config:private_attributes()) -> map().
-format_event_set_context(<<"feature">>, Context, OutputEvent, _) ->
-    OutputEvent#{<<"contextKeys">> => ldclient_context:get_keys_and_kinds(Context)};
+format_event_set_context(<<"feature">>, Context, OutputEvent, GlobalPrivateAttributes) ->
+    OutputEvent#{
+        <<"context">> => ldclient_context_filter:format_context_for_event_with_anonyous_redaction(GlobalPrivateAttributes, Context)
+    };
 format_event_set_context(<<"debug">>, Context, OutputEvent, GlobalPrivateAttributes) ->
     OutputEvent#{
         <<"context">> => ldclient_context_filter:format_context_for_event(GlobalPrivateAttributes, Context)
@@ -242,8 +263,8 @@ format_event_set_context(<<"index">>, Context, OutputEvent, GlobalPrivateAttribu
     OutputEvent#{
         <<"context">> => ldclient_context_filter:format_context_for_event(GlobalPrivateAttributes, Context)
     };
-format_event_set_context(<<"custom">>, Context, OutputEvent, _) ->
-    OutputEvent#{<<"contextKeys">> => ldclient_context:get_keys_and_kinds(Context)}.
+format_event_set_context(<<"custom">>, Context, OutputEvent, GlobalPrivateAttributes) ->
+    OutputEvent#{<<"context">> => ldclient_context_filter:format_context_for_event_with_anonyous_redaction(GlobalPrivateAttributes, Context)}.
 
 -spec maybe_set_metric_value(ldclient_event:event(), map()) -> map().
 maybe_set_metric_value(#{metric_value := MetricValue}, OutputEvent) ->
@@ -319,3 +340,6 @@ send(Dispatcher, DispatcherState, OutputEvents, PayloadId, Uri) ->
 -spec get_local_reg_name(Tag :: atom()) -> atom().
 get_local_reg_name(Tag) ->
     list_to_atom("ldclient_event_process_server_" ++ atom_to_list(Tag)).
+
+-spec ets_table_name(Tag :: atom()) -> atom().
+ets_table_name(Tag) -> list_to_atom(?TABLE_PREFIX ++ atom_to_list(Tag)).
