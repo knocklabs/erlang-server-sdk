@@ -2,6 +2,141 @@
 
 All notable changes to the LaunchDarkly Erlang/Elixir SDK will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org).
 
+## [3.11.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.10.1...v3.11.0) (2026-06-17)
+
+
+### Features
+
+* Ensure shotgun dependency is at least 1.2.2. ([#189](https://github.com/launchdarkly/erlang-server-sdk/issues/189)) ([b06a5c6](https://github.com/launchdarkly/erlang-server-sdk/commit/b06a5c6ca5948ba5417fc113ae7002ecc971ae8f))
+* Update rebar config, use shotgun ~&gt; 1.2 ([#187](https://github.com/launchdarkly/erlang-server-sdk/issues/187)) ([6c3e626](https://github.com/launchdarkly/erlang-server-sdk/commit/6c3e626fbb14935210e6e8be751e239a095f3d9b))
+
+## [3.10.1](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.10.0...v3.10.1) (2026-05-28)
+
+
+### Bug Fixes
+
+* Fix apache license format ([#183](https://github.com/launchdarkly/erlang-server-sdk/issues/183)) ([de83758](https://github.com/launchdarkly/erlang-server-sdk/commit/de83758033c19aadfcdb79809eb3129c58d1b01b))
+
+## [3.10.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.9.0...v3.10.0) (2026-05-28)
+
+
+### Features
+
+* add X-LaunchDarkly-Instance-Id header ([#181](https://github.com/launchdarkly/erlang-server-sdk/issues/181)) ([2fbe6cc](https://github.com/launchdarkly/erlang-server-sdk/commit/2fbe6cc9069deda079c33184343cbf82d8a3ce3a))
+
+## [3.9.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.8.1...v3.9.0) (2026-02-09)
+
+
+### Features
+
+* Support combining multi-contexts using ldcontext:new_multi_from. ([#167](https://github.com/launchdarkly/erlang-server-sdk/issues/167)) ([7c9f934](https://github.com/launchdarkly/erlang-server-sdk/commit/7c9f934ec307d266ce0c4588c83c822021508a07)), closes [#126](https://github.com/launchdarkly/erlang-server-sdk/issues/126)
+
+
+### Bug Fixes
+
+* Fix an issue where &lt;<kind&gt;> would be included in the list of context kinds when kind was binary. ([#168](https://github.com/launchdarkly/erlang-server-sdk/issues/168)) ([8cdee5c](https://github.com/launchdarkly/erlang-server-sdk/commit/8cdee5cfcc13f9a6dd1f49ba5ce91ed2007c36b5))
+
+## [3.8.1](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.8.0...v3.8.1) (2025-11-12)
+
+
+### Bug Fixes
+
+* Handle connection errors during read operations. ([#163](https://github.com/launchdarkly/erlang-server-sdk/issues/163)) ([5838c2b](https://github.com/launchdarkly/erlang-server-sdk/commit/5838c2b31609e2e27ffa6bfed7ad1725f7725188))
+* Handle redis errors during mutations. ([#165](https://github.com/launchdarkly/erlang-server-sdk/issues/165)) ([9dbe853](https://github.com/launchdarkly/erlang-server-sdk/commit/9dbe8535c376cd992a089d2b82f63311f93b4494))
+* Prevent uninitialized SDK warning in daemon mode. ([#162](https://github.com/launchdarkly/erlang-server-sdk/issues/162)) ([0961922](https://github.com/launchdarkly/erlang-server-sdk/commit/0961922ac65ba91ee9b11bb30f54d4ef2ffe2996))
+* Redact SDK in gen_server descriptions and network errors. ([#166](https://github.com/launchdarkly/erlang-server-sdk/issues/166)) ([3a4e005](https://github.com/launchdarkly/erlang-server-sdk/commit/3a4e005f55b0a3a96e11371d311c9b2bf990b5b9))
+
+## [3.8.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.7.2...v3.8.0) (2025-08-08)
+
+
+### Features
+
+* Update minimum OTP version to 24. ([82f0e77](https://github.com/launchdarkly/erlang-server-sdk/commit/82f0e773475f5cd78a54d2aad36994e129f9cbd0))
+
+
+### Bug Fixes
+
+* Fix issue where sometimes a dropped stream would not reconnect. ([82f0e77](https://github.com/launchdarkly/erlang-server-sdk/commit/82f0e773475f5cd78a54d2aad36994e129f9cbd0))
+
+## [3.7.2](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.7.1...v3.7.2) (2025-06-25)
+
+
+### Bug Fixes
+
+* Fix an issue with rollouts with a missing attribute. ([#153](https://github.com/launchdarkly/erlang-server-sdk/issues/153)) ([a94ed9c](https://github.com/launchdarkly/erlang-server-sdk/commit/a94ed9c50f6f65f155d1604e29eedab8780192a9)), closes [#152](https://github.com/launchdarkly/erlang-server-sdk/issues/152)
+
+## [3.7.1](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.7.0...v3.7.1) (2025-06-03)
+
+
+### Bug Fixes
+
+* Change certifi dependency to a minimum version. ([#150](https://github.com/launchdarkly/erlang-server-sdk/issues/150)) ([b1a91c0](https://github.com/launchdarkly/erlang-server-sdk/commit/b1a91c0ccc91ca130b243d53bbd65288fa6f0fbf)), closes [#149](https://github.com/launchdarkly/erlang-server-sdk/issues/149)
+
+## [3.7.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.6.0...v3.7.0) (2025-05-08)
+
+
+### Features
+
+* Inline context for custom events ([#147](https://github.com/launchdarkly/erlang-server-sdk/issues/147)) ([1cd2357](https://github.com/launchdarkly/erlang-server-sdk/commit/1cd2357ee71b4fb003445856fa1ca4e5b5575e93))
+
+## [3.6.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.5.0...v3.6.0) (2025-03-17)
+
+
+### Features
+
+* Add support for setting the redis username when using redis persistence. ([#142](https://github.com/launchdarkly/erlang-server-sdk/issues/142)) ([c37fefd](https://github.com/launchdarkly/erlang-server-sdk/commit/c37fefdcf0788deab39ae0ecb351dab25ddb34c6))
+* Update certifi to 2.14.0 ([#144](https://github.com/launchdarkly/erlang-server-sdk/issues/144)) ([69771cf](https://github.com/launchdarkly/erlang-server-sdk/commit/69771cf5f20147f10d785c759e694719b88dd44a))
+
+## [3.5.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.4.0...v3.5.0) (2024-11-07)
+
+
+### Features
+
+* Updates shotgun version to 1.1.0 release ([#139](https://github.com/launchdarkly/erlang-server-sdk/issues/139)) ([52dafc3](https://github.com/launchdarkly/erlang-server-sdk/commit/52dafc354ecc93145b6f6b833799d91c5611dfb9))
+
+## [3.4.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.3.1...v3.4.0) (2024-10-24)
+
+
+### Features
+
+* Add support for client-side prerequisite events. ([167308a](https://github.com/launchdarkly/erlang-server-sdk/commit/167308a01dc334ef960e56d976b6be32bac60326))
+* Add support for client-side visibility for all_flags_state. ([167308a](https://github.com/launchdarkly/erlang-server-sdk/commit/167308a01dc334ef960e56d976b6be32bac60326))
+* Use ets for last-known server-time. ([#136](https://github.com/launchdarkly/erlang-server-sdk/issues/136)) ([568ac51](https://github.com/launchdarkly/erlang-server-sdk/commit/568ac5146cf881a63d33d2576ca6dc9490c9c002))
+
+## [3.3.1](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.3.0...v3.3.1) (2024-09-23)
+
+
+### Bug Fixes
+
+* Add mising events_uri type to options ([#133](https://github.com/launchdarkly/erlang-server-sdk/issues/133)) ([65bb39c](https://github.com/launchdarkly/erlang-server-sdk/commit/65bb39c48172bb5c2492b8d66b212f0e3bb1dcdc))
+
+## [3.3.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.2.0...v3.3.0) (2024-05-20)
+
+
+### Features
+
+* add tlsv1.3 to default cipher suites ([#128](https://github.com/launchdarkly/erlang-server-sdk/issues/128)) ([4074483](https://github.com/launchdarkly/erlang-server-sdk/commit/407448308d9d0f4aaaef0243cec16885f7300a7c))
+
+## [3.2.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.1.0...v3.2.0) (2024-03-14)
+
+
+### Features
+
+* Always inline contexts for feature events ([#119](https://github.com/launchdarkly/erlang-server-sdk/issues/119)) ([e5c6cc4](https://github.com/launchdarkly/erlang-server-sdk/commit/e5c6cc4da4cd6dc59326bb5fa0b0a75864c72bc7))
+* Redact anonymous attributes within feature events ([#120](https://github.com/launchdarkly/erlang-server-sdk/issues/120)) ([d334861](https://github.com/launchdarkly/erlang-server-sdk/commit/d33486181d87e38cff15a423e44f11cee79c8766))
+
+## [3.1.0](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.0.4...v3.1.0) (2024-01-04)
+
+
+### Features
+
+* For otp 25+ use public_key:cacerts_get for the default certificate list. ([#114](https://github.com/launchdarkly/erlang-server-sdk/issues/114)) ([b7065aa](https://github.com/launchdarkly/erlang-server-sdk/commit/b7065aacb2bdfab1a395eb8bdd5a0754b19bee1a))
+
+
+### Bug Fixes
+
+* Make gun open errors explicitly into temporary failures ([#118](https://github.com/launchdarkly/erlang-server-sdk/issues/118)) ([fc70445](https://github.com/launchdarkly/erlang-server-sdk/commit/fc70445daf179e3d24a5dc5685f5db6ea0ee91cc))
+
 ## [3.0.4](https://github.com/launchdarkly/erlang-server-sdk/compare/v3.0.3...v3.0.4) (2023-12-04)
 
 

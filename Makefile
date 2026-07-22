@@ -1,4 +1,5 @@
 REBAR3 = rebar3
+ERL_VERSION = `erl -eval 'io:fwrite("~s~n", [erlang:system_info(otp_release)]), halt().' -noshell`
 
 all:
 	@$(REBAR3) do clean, compile, ct, dialyzer
@@ -21,9 +22,9 @@ run:
 doc:
 	@$(REBAR3) edoc
 
-tests:
-	docker run --name ld-test-redis -p 6379:6379 -d redis
-	@$(REBAR3) ct --dir="test,test-redis" --logdir logs/ct --cover
+tests: clean-redis
+	docker run --name ld-test-redis -p 6379:6379 -d redis:7.2
+	@$(REBAR3) ct --dir="test,test-redis" --logdir logs/ct
 	docker rm --force ld-test-redis
 
 #This is used in running releaser. In this environment we do not want to run the redis tests.
@@ -39,15 +40,15 @@ tls-tests:
 
 #This is for local debugging if your tests fail and the Redis Docker container is not torn down properly
 clean-redis:
-	docker rm --force ld-test-redis
+	docker rm --force ld-test-redis 2> /dev/null || true
 
 colon := :
 build-contract-tests:
 	@mkdir -p test-service/_checkouts
 	@rm -f $(CURDIR)/test-service/_checkouts/ldclient
 	@ln -sf $(CURDIR)/ $(CURDIR)/test-service/_checkouts/ldclient
-	@if [ "$(OTP_VER)" = "26.x" ]; then\
-		echo Dialyze for OTP 26;\
+	@if [ "$(ERL_VERSION)" -ge "26" ]; then\
+		echo Dialyze for OTP 26+;\
 		cd test-service && $(REBAR3) as otp26 dialyzer;\
 	else\
 		cd test-service && $(REBAR3) dialyzer;\
