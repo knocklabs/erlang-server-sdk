@@ -19,7 +19,6 @@
 -export([tls_basic_linux_options/0]).
 -export([tls_ca_certfile_options/1]).
 -export([with_tls_revocation/1]).
--export([tls_basic_certifi_options/0]).
 -export([tls_basic_options/0]).
 -export([get_version/0]).
 
@@ -299,21 +298,12 @@ get_event_schema() ->
     ?EVENT_SCHEMA.
 
 %% @doc Provide basic options for using TLS.
-%% This will try to use the a certificate store located at
-%% /etc/ssl/certs/ca-certificates.crt, but if that file
-%% does not exist, then it will use the bundled certifi store.
+%% This uses the OS certificate store through public_key:cacerts_get/0.
 %%
 %% @end
 -spec tls_basic_options() -> [ssl:tls_client_option()].
 tls_basic_options() ->
-    case erlang:list_to_integer(erlang:system_info(otp_release)) >= 25 of
-        true -> tls_basic_erlef_options();
-        false -> tls_basic_options(filelib:is_regular(?HTTP_DEFAULT_LINUX_CASTORE))
-    end.
-
-%% The public_key:cacerts_get function does not exist prior to OTP 25, so we
-%% need to ignore the warning when building code that will not be using it.
--dialyzer({no_missing_calls, tls_basic_erlef_options/0}).
+    tls_basic_erlef_options().
 
 %% @doc Provide basic options for using TLS with the default OTP 25+.
 %% Follows the recommendations from the Erlang Security Working Group.
@@ -361,20 +351,6 @@ with_tls_revocation(Options) ->
                 {internal, [{http, 1000}]}
             }
         } | Options].
-
-%% Disable warnings for tls_basic_certifi_options because the dialyzer
-%% cannot find certifi:cacerts.
--dialyzer({nowarn_function, [tls_basic_certifi_options/0]}).
-
-%% @doc Provide basic TLS options using the bundled certifi store.
-%%
-%% @end
--spec tls_basic_certifi_options() -> [ssl:tls_client_option()].
-tls_basic_certifi_options() ->
-    CaCerts = certifi:cacerts(),
-    [
-        {cacerts, CaCerts}
-        | tls_base_options()].
 
 %%===================================================================
 %% Internal functions
@@ -450,16 +426,6 @@ tls_base_options() ->
         {customize_hostname_check, [
             {match_fun, public_key:pkix_verify_hostname_match_fun(https)}
         ]}].
-
--spec tls_basic_options(CaStoreExists :: boolean()) -> [ssl:tls_client_option()].
-tls_basic_options(true) ->
-    tls_basic_linux_options();
-tls_basic_options(false) ->
-    error_logger:warning_msg("TLS options are falling back to using the certifi store.
-    This means the OS certificate store was not in the default location (/etc/ssl/certs/ca-certificates.crt).
-    Please specify a custom location. You can use tls_ca_certfile_options, or fully specify the tls_options.
-    You may see this warning in development on Mac/Windows."),
-    tls_basic_certifi_options().
 
 -spec validate_tag_value(Value :: binary() | undefined) -> boolean().
 validate_tag_value(<<>>) -> false;
