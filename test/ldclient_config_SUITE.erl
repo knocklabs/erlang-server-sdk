@@ -133,40 +133,15 @@ get_http_options_multiple_options(_) ->
     } = maps:get(http_options, Settings, undefined).
 
 tls_basic_options(_) ->
-    case erlang:list_to_integer(erlang:system_info(otp_release)) >= 25 of
-    true -> 
-        BasicOptions = ldclient_config:tls_basic_options(),
-        CaCerts = public_key:cacerts_get(),
-        [{cacerts, CaCerts},
-        {verify, verify_peer},
-        {ciphers, Ciphers},
-        {depth, 3},
-        {versions, _Versions},
-        {customize_hostname_check, _}] = BasicOptions,
-        true = (length(Ciphers) =/= 0);
-    false -> 
-        BasicOptions = ldclient_config:tls_basic_options(),
-        case os:type() of
-            {unix, linux} ->
-                [
-                    {cacertfile, "/etc/ssl/certs/ca-certificates.crt"},
-                    {verify, verify_peer},
-                    {ciphers, Ciphers},
-                    {depth, 3},
-                    {versions, _Versions},
-                    {customize_hostname_check, _}] = BasicOptions,
-                true = (length(Ciphers) =/= 0);
-            {_, _} ->
-                [
-                    {cacerts, _},
-                    {verify, verify_peer},
-                    {ciphers, Ciphers},
-                    {depth, 3},
-                    {versions, _Versions},
-                    {customize_hostname_check, _}] = BasicOptions,
-                true = (length(Ciphers) =/= 0)
-        end
-    end.
+    BasicOptions = ldclient_config:tls_basic_options(),
+    CaCerts = public_key:cacerts_get(),
+    [{cacerts, CaCerts},
+    {verify, verify_peer},
+    {ciphers, Ciphers},
+    {depth, 3},
+    {versions, _Versions},
+    {customize_hostname_check, _}] = BasicOptions,
+    true = (length(Ciphers) =/= 0).
 
 tls_with_ca_certfile_options(_) ->
     [
